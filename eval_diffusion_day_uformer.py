@@ -23,7 +23,7 @@ def parse_args_and_config():
                         help="Grid cell width r that defines the overlap between patches")
     parser.add_argument("--sampling_timesteps", type=int, default=25,
                         help="Number of implicit sampling steps")
-    parser.add_argument("--test_set", type=str, default='Uformer_frequency',
+    parser.add_argument("--test_set", type=str, default='Uformer_Enhanced',
                         help="restoration test set results: ['Raindrop_DiT', 'RDiffusion', 'IDT', 'restormer', 'Uformer', 'ICRA256', 'onego', 'atgan']")
     parser.add_argument("--image_folder", default='', type=str,
                         help="Location to save restored images")

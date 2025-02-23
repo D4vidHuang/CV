@@ -14,7 +14,7 @@ from models.ICRA import create_gen_nets
 from models.onego_genotypes_searched import architectures
 from models.onego_train_model import Raincleaner_train
 from models.IDT import create_IDT_nets
-from models.Uformer import create_uformer_nets, create_uformer_nets_frequency
+from models.Uformer import create_uformer_nets, create_uformer_nets_frequency, create_uformer_nets_enhanced
 from models.restormer import create_restormer_nets
 from models.atgan import create_atgan_nets
 
@@ -162,6 +162,11 @@ class DenoisingDiffusion(object):
             self.model_name = 'Uformer_frequency'
             assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
 
+        if self.args.test_set == 'Uformer_Enhanced':
+            self.model = create_uformer_nets_enhanced()
+            self.model_name = 'Uformer_Enhanced'
+            assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
+
         if self.args.test_set == 'restormer':
             self.model = create_restormer_nets()
             self.model_name = 'restormer'
@@ -299,19 +304,23 @@ class DenoisingDiffusion(object):
                         self.sample_validation_patches(val_loader, self.step)
 
                     if self.step % self.config.training.snapshot_freq == 0 or self.step == 1:
-                        checkpoint_path = os.path.join('Param/'+ self.config.data.dataset +'/' + self.model_name + '_ddpm')
+                        save_dir = os.getcwd()
+                        checkpoint_path = os.path.join(save_dir, f"{self.model_name}_ddpm_epoch_{epoch+1}_step_{self.step}.pth")
                         utils.logging.save_checkpoint({
-                        'epoch': epoch + 1,
-                        'step': self.step,
-                        'state_dict': self.model.state_dict(),
-                        'optimizer': self.optimizer.state_dict(),
-                        'ema_helper': self.ema_helper.state_dict(),
-                        'params': self.args,
-                        'config': self.config
+                            'epoch': epoch + 1,
+                            'step': self.step,
+                            'state_dict': self.model.state_dict(),
+                            'optimizer': self.optimizer.state_dict(),
+                            'ema_helper': self.ema_helper.state_dict(),
+                            'params': self.args,
+                            'config': self.config
                         }, filename=checkpoint_path)
+                        print(f"Checkpoint saved at: {checkpoint_path}")
                 else:
-                    if (epoch+1) % self.config.training.snapshot_freq  == 0:
-                        checkpoint_path = os.path.join('Param/', self.config.data.dataset + '/' + self.model_name +'/'+'epoch'+str(epoch + 1))
+                    if (epoch+1) % self.config.training.snapshot_freq == 0:
+                        # 保存路径固定为当前工作目录，即文件根目录
+                        save_dir = os.getcwd()
+                        checkpoint_path = os.path.join(save_dir, f"{self.model_name}_epoch_{epoch+1}_step_{self.step}.pth")
                         utils.logging.save_checkpoint({
                             'epoch': epoch + 1,
                             'step': self.step,
@@ -320,7 +329,7 @@ class DenoisingDiffusion(object):
                             'params': self.args,
                             'config': self.config
                         }, filename=checkpoint_path)
-                print(f"Checkpoint saved at: {checkpoint_path}")
+                        print(f"Checkpoint saved at: {checkpoint_path}")
 
     def sample_image(self, x_cond, x, last=True, patch_locs=None, patch_size=None):
         skip = self.config.diffusion.num_diffusion_timesteps // self.args.sampling_timesteps
