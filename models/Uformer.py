@@ -1339,10 +1339,20 @@ class Uformer_frequency(nn.Module):
                  cross_modulator=False, **kwargs):
         super().__init__()
 
-        self.b1 = 1.5
-        self.b2 = 1.6
-        self.s1 = 0.9
-        self.s2 = 0.9
+        self.b1 = nn.Parameter(torch.tensor(1.6, dtype=torch.float32))
+        self.b2 = nn.Parameter(torch.tensor(1.5, dtype=torch.float32))
+        self.b3 = nn.Parameter(torch.tensor(1.3, dtype=torch.float32))
+        self.b4 = nn.Parameter(torch.tensor(1.2, dtype=torch.float32))
+
+        self.s1 = nn.Parameter(torch.randn(4, 1024, 128, dtype=torch.float32))
+        self.s2 = nn.Parameter(torch.randn(4, 4096, 64, dtype=torch.float32))
+        self.s3 = nn.Parameter(torch.randn(4, 16384, 32, dtype=torch.float32))
+        self.s4 = nn.Parameter(torch.randn(4, 65536, 16,dtype=torch.float32))
+
+        self.threshold1 = 0.7
+        self.threshold2 = 0.8
+        self.threshold3 = 0.9
+        self.threshold4 = 0.99
 
         self.num_enc_layers = len(depths)//2
         self.num_dec_layers = len(depths)//2
@@ -1546,14 +1556,34 @@ class Uformer_frequency(nn.Module):
         # FFT
         x_freq = fft.fftn(x, dim=(-2, -1))  # Compute FFT along spatial dimensions
         x_freq = fft.fftshift(x_freq, dim=(-2, -1))  # Shift zero frequency to the center
+        if(x_freq.shape != scale.shape):
+            print('x_freq', x_freq.shape)
+            # repeat_factor = scale.shape[0] // x_freq.shape[0]
+            # x_freq = x_freq.repeat(repeat_factor, 1, 1)
+            B, _, _ = x_freq.shape
+            x_freq = x_freq * scale[:B]
+            x_freq = fft.ifftshift(x_freq, dim=(-2, -1))  # Shift back
+            x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real  # Compute inverse FFT
 
-        C, H, W = x_freq.shape
-        mask = torch.ones((C, H, W), device=x.device)  # Create mask of shape (C, H, W)
+            return x_filtered
+        # C, H, W = x_freq.shape
+        #
+        #
+        # mask = torch.ones((C, H, W), device=x.device) * scale
+        #
+        # # Set the low-frequency region (center) to 1 (no scaling)
+        # crow, ccol = H // 2, W // 2
+        # threCrow = int(threshold * crow)
+        # threCcol = int(threshold * ccol)
+        # mask[..., crow - threCrow:crow + threCrow, ccol - threCcol:ccol + threCcol] = 1.0
 
         # Define central region
-        crow, ccol = H // 2, W // 2
-        mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
-        x_freq = x_freq * mask.clone()  # Apply frequency mask
+        # mask = torch.ones((C, H, W), device=x.device)  # Create mask of shape (C, H, W)
+        # crow, ccol = H // 2, W // 2
+        # mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
+
+
+        x_freq = x_freq * scale  # Apply frequency mask
 
         # IFFT
         x_freq = fft.ifftshift(x_freq, dim=(-2, -1))  # Shift back
@@ -1601,6 +1631,7 @@ class Uformer_frequency(nn.Module):
         #Decoder
         # up0 = self.upsample_0(conv4)
 
+        # FreeU
         up0 = self.upsample_0(conv4)
         x_avg = up0.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
 
@@ -1610,7 +1641,10 @@ class Uformer_frequency(nn.Module):
 
         # Step 3: Normalize (Avoid division by zero)
         hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        up0 = up0.clone()
+        up0[:up0.shape[0]//2] = up0[:up0.shape[0]//2].clone() * ((self.b1 - 1 ) * hidden_mean + 1)
 
+<<<<<<< Updated upstream
 
         # Apply the normalization formula from the equation
         # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
@@ -1621,12 +1655,17 @@ class Uformer_frequency(nn.Module):
         # up0 = torch.cat([up0_first, up0_rest], dim=0)
 
         conv3 = self.Fourier_filter_free_3d(conv3, threshold=5, scale=self.s1)
+=======
+        conv3 = self.Fourier_filter_free_3d(conv3, threshold=self.threshold1, scale=self.s1)
+>>>>>>> Stashed changes
 
         deconv0 = torch.cat([up0,conv3],-1)
         deconv0 = self.decoderlayer_0(deconv0,mask=mask)
 
         up1 = self.upsample_1(deconv0)
 
+
+        #FreeU
         x_avg1 = up1.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
 
         # Step 2: Compute global min and max across spatial dimensions (H, W)
@@ -1639,10 +1678,16 @@ class Uformer_frequency(nn.Module):
 
         # Apply the normalization formula from the equation
         # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
+        up1 = up1.clone()
+        up1[:up1.shape[0]//2] = up1[:up1.shape[0]//2].clone() * ((self.b2 - 1 ) * hidden_mean1 + 1)
 
+<<<<<<< Updated upstream
         up1 = up1 * ((self.b1 - 1 ) * hidden_mean1 + 1)
 
         conv2 = self.Fourier_filter_free_3d(conv2, threshold=5, scale=self.s1)
+=======
+        conv2 = self.Fourier_filter_free_3d(conv2, threshold=self.threshold2, scale=self.s2)
+>>>>>>> Stashed changes
 
 
         deconv1 = torch.cat([up1,conv2],-1)
@@ -1650,14 +1695,12 @@ class Uformer_frequency(nn.Module):
 
         up2 = self.upsample_2(deconv1)
 
+        # FreeU
         x_avg = up2.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
-
-        # Step 2: Compute global min and max across spatial dimensions (H, W)
         min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
         max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
-
-        # Step 3: Normalize (Avoid division by zero)
         hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+<<<<<<< Updated upstream
 
 
         # Apply the normalization formula from the equation
@@ -1669,11 +1712,27 @@ class Uformer_frequency(nn.Module):
         # up0 = torch.cat([up0_first, up0_rest], dim=0)
 
         conv13 = self.Fourier_filter_free_3d(conv1, threshold=5, scale=self.s1)
+=======
+        up2 = up2.clone()
+        up2[:up2.shape[0]//2]= up2[:up2.shape[0]//2].clone() * ((self.b3 - 1 ) * hidden_mean + 1)
+        conv1 = self.Fourier_filter_free_3d(conv1, threshold=self.threshold3, scale=self.s3)
+>>>>>>> Stashed changes
 
         deconv2 = torch.cat([up2,conv1],-1)
         deconv2 = self.decoderlayer_2(deconv2,mask=mask)
 
         up3 = self.upsample_3(deconv2)
+
+        #FreeU
+        x_avg = up3.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
+        min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
+        max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
+        hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        up3 = up3.clone()
+        up3[:up3.shape[0] // 2] = up3[:up3.shape[0] // 2].clone() * ((self.b4 - 1) * hidden_mean + 1)
+        conv0 = self.Fourier_filter_free_3d(conv0, threshold=self.threshold4, scale=self.s4)
+
+
         deconv3 = torch.cat([up3,conv0],-1)
         deconv3 = self.decoderlayer_3(deconv3,mask=mask)
 
