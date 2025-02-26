@@ -5,7 +5,7 @@ data:
     # image_size: 128 # IDT, restormer
     channels: 3
     num_workers: 8
-    data_dir: "D:/DSAIT/DayRainDrop_Train" #D:/DSAIT/DayRainDrop_Train shrinkRaindrop
+    data_dir: "shrinkRaindrop" #D:/DSAIT/DayRainDrop_Train shrinkRaindrop
     conditional: True
 
 model:
@@ -38,9 +38,9 @@ training:
     # batch_size: 32
     #-----------DIT, RDiffusion--------------
     #n_epochs: 37042
-    n_epochs: 101 #401
+    n_epochs: 401 #401
     n_iters: 20000000
-    snapshot_freq: 1
+    snapshot_freq: 3
     validation_freq: 10000
 
 sampling:

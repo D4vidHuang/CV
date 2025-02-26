@@ -17,7 +17,7 @@ def parse_args_and_config():
     parser = argparse.ArgumentParser(description='Restoring Raindrop Clarity with Uformer')
     parser.add_argument("--config", type=str, default='daytime_256.yml',
                         help="Path to the config file")
-    parser.add_argument('--resume', default='Param/RainDrop/Uformer_frequency/epoch224.pth.tar', type=str,
+    parser.add_argument('--resume', default='Param/RainDrop/Uformer_frequency/epoch117.pth.tar', type=str,
                         help='Path for the model checkpoint to load for evaluation')
     parser.add_argument("--grid_r", type=int, default=16,
                         help="Grid cell width r that defines the overlap between patches")

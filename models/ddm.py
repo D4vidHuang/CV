@@ -239,7 +239,7 @@ class DenoisingDiffusion(object):
         #     amsgrad=False,  # AMSGrad disabled
         #     eps=1e-8  # Small epsilon for numerical stability
         # ) #rdiffusion
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=0.002 , betas=(0.9, 0.999), eps=1e-8, #0.0002
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=0.0002 , betas=(0.9, 0.999), eps=1e-8, #0.0002
                     weight_decay=0.02) #uformer frequency
         if self.args.test_set in ['RDiffusion', 'Raindrop_DiT', 'RDiffusion_frequency']:
             self.ema_helper.load_state_dict(checkpoint['ema_helper'])
@@ -381,7 +381,7 @@ class DenoisingDiffusion(object):
                         }, filename=checkpoint_path)
                         print(f"Checkpoint saved at: {checkpoint_path}")
                 else:
-                    if (epoch+1) % self.config.training.snapshot_freq  == 0 and self.step % 100 == 0:
+                    if (epoch+1) % self.config.training.snapshot_freq  == 0 and i % 120 == 0:
                         checkpoint_path = os.path.join('Param/', self.config.data.dataset + '/' + self.model_name +'/'+'epoch'+str(epoch + 1))
                         utils.logging.save_checkpoint({
                             'epoch': epoch + 1,
