@@ -1643,28 +1643,13 @@ class Uformer_frequency(nn.Module):
         hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
         up0 = up0.clone()
         up0[:up0.shape[0]//2] = up0[:up0.shape[0]//2].clone() * ((self.b1 - 1 ) * hidden_mean + 1)
-
-<<<<<<< Updated upstream
-
-        # Apply the normalization formula from the equation
-        # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
-
-        up0 = up0 * ((self.b1 - 1 ) * hidden_mean + 1)
-        # up0_first = up0[:up0.shape[0] // 2] * (((self.b1 - 1) * hidden_mean) + 1)
-        # up0_rest = up0[up0.shape[0] // 2:]
-        # up0 = torch.cat([up0_first, up0_rest], dim=0)
-
-        conv3 = self.Fourier_filter_free_3d(conv3, threshold=5, scale=self.s1)
-=======
         conv3 = self.Fourier_filter_free_3d(conv3, threshold=self.threshold1, scale=self.s1)
->>>>>>> Stashed changes
+
 
         deconv0 = torch.cat([up0,conv3],-1)
         deconv0 = self.decoderlayer_0(deconv0,mask=mask)
 
         up1 = self.upsample_1(deconv0)
-
-
         #FreeU
         x_avg1 = up1.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
 
@@ -1680,15 +1665,7 @@ class Uformer_frequency(nn.Module):
         # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
         up1 = up1.clone()
         up1[:up1.shape[0]//2] = up1[:up1.shape[0]//2].clone() * ((self.b2 - 1 ) * hidden_mean1 + 1)
-
-<<<<<<< Updated upstream
-        up1 = up1 * ((self.b1 - 1 ) * hidden_mean1 + 1)
-
-        conv2 = self.Fourier_filter_free_3d(conv2, threshold=5, scale=self.s1)
-=======
         conv2 = self.Fourier_filter_free_3d(conv2, threshold=self.threshold2, scale=self.s2)
->>>>>>> Stashed changes
-
 
         deconv1 = torch.cat([up1,conv2],-1)
         deconv1 = self.decoderlayer_1(deconv1,mask=mask)
@@ -1700,23 +1677,10 @@ class Uformer_frequency(nn.Module):
         min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
         max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
         hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
-<<<<<<< Updated upstream
 
-
-        # Apply the normalization formula from the equation
-        # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
-
-        up2= up2 * ((self.b1 - 1 ) * hidden_mean + 1)
-        # up0_first = up0[:up0.shape[0] // 2] * (((self.b1 - 1) * hidden_mean) + 1)
-        # up0_rest = up0[up0.shape[0] // 2:]
-        # up0 = torch.cat([up0_first, up0_rest], dim=0)
-
-        conv13 = self.Fourier_filter_free_3d(conv1, threshold=5, scale=self.s1)
-=======
         up2 = up2.clone()
         up2[:up2.shape[0]//2]= up2[:up2.shape[0]//2].clone() * ((self.b3 - 1 ) * hidden_mean + 1)
         conv1 = self.Fourier_filter_free_3d(conv1, threshold=self.threshold3, scale=self.s3)
->>>>>>> Stashed changes
 
         deconv2 = torch.cat([up2,conv1],-1)
         deconv2 = self.decoderlayer_2(deconv2,mask=mask)
@@ -1784,12 +1748,6 @@ def create_uformer_nets_frequency():
                        win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
     return  networks
 
-def create_uformer_nets_enhanced():
-    input_size = 256
-    depths=[2, 2, 2, 2, 2, 2, 2, 2, 2]
-    networks = Uformer_Enhanced(img_size=input_size, embed_dim=16,depths=depths,
-                                 win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
-    return  networks
 
 def params_count(net):
     list1 = []
@@ -1803,260 +1761,7 @@ def params_count(net):
     return n_parameters
 
 
-import torch
-import torch.nn as nn
-import torch.utils.checkpoint as checkpoint
-from timm.layers import DropPath, to_2tuple, trunc_normal_
-import torch.nn.functional as F
-from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
-import math
-import numpy as np
-import time
-from torch import einsum
-import torch.fft as fft
 
-class AdaptiveFourierFilter(nn.Module):
-    """自适应频域滤波器，包含可学习阈值和缩放因子"""
-    def __init__(self, embed_dim):
-        super().__init__()
-        # 可学习的频率阈值控制参数
-        self.threshold_ratio = nn.Parameter(torch.tensor(0.2))
-        # 可学习的缩放因子
-        self.scale = nn.Parameter(torch.tensor(0.9))
-
-        # 自适应参数范围限制
-        self.threshold_ratio.data.clamp_(0.05, 0.5)
-        self.scale.data.clamp_(0.5, 1.5)
-
-    def forward(self, x):
-        """
-        输入形状: (C, H, W)
-        输出形状: (C, H, W)
-        """
-        # FFT变换
-        x_freq = fft.fftn(x, dim=(-2, -1))
-        x_freq = fft.fftshift(x_freq, dim=(-2, -1))
-
-        C, H, W = x_freq.shape
-        mask = torch.ones_like(x_freq)
-
-        # 动态计算阈值
-        threshold = int(min(H, W) * self.threshold_ratio)
-        crow, ccol = H//2, W//2
-        start_row = max(0, crow - threshold)
-        end_row = min(H, crow + threshold)
-        start_col = max(0, ccol - threshold)
-        end_col = min(W, ccol + threshold)
-
-        # 应用动态缩放因子
-        mask[:, start_row:end_row, start_col:end_col] = self.scale
-
-        # 频率滤波
-        filtered_freq = x_freq * mask
-        filtered_freq = fft.ifftshift(filtered_freq, dim=(-2, -1))
-        x_filtered = fft.ifftn(filtered_freq, dim=(-2, -1)).real
-
-        # 残差连接保留原始信息
-        return x_filtered + x * (1 - self.scale.abs())
-
-class EnhancedLeWinTransformerBlock(nn.Module):
-    """增强的Transformer Block，包含通道注意力和动态频域处理"""
-    def __init__(self, dim, input_resolution, num_heads, win_size=8, shift_size=0,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,
-                 token_projection='linear', token_mlp='leff', modulator=False):
-        super().__init__()
-
-        # 原始窗口注意力模块
-        self.norm1 = norm_layer(dim)
-        self.attn = WindowAttention(
-            dim, win_size=to_2tuple(win_size), num_heads=num_heads,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
-            token_projection=token_projection)
-
-        # 通道注意力
-        self.channel_attn = nn.Sequential(
-            nn.Linear(dim, dim // 4),
-            act_layer(),
-            nn.Linear(dim // 4, dim),
-            nn.Sigmoid()
-        )
-
-        # 动态频域处理
-        self.freq_filter = AdaptiveFourierFilter(dim)
-
-        # 前馈网络
-        self.norm2 = norm_layer(dim)
-        self.mlp = LeFF(dim, int(dim*mlp_ratio), act_layer=act_layer, drop=drop)
-
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-
-    def forward(self, x, mask=None):
-        B, L, C = x.shape
-        H = W = int(math.sqrt(L))
-
-        # 窗口注意力
-        shortcut = x
-        x = self.norm1(x)
-        x = self.attn(x, mask=mask)
-
-        # 通道注意力增强
-        ca_weights = self.channel_attn(x.mean(1))  # (B, C)
-        x = x * ca_weights.unsqueeze(1)
-
-        # 首次残差连接
-        x = shortcut + self.drop_path(x)
-
-        # 频域处理
-        x_freq = x.view(B, H, W, C).permute(0, 3, 1, 2)  # (B, C, H, W)
-        x_freq = self.freq_filter(x_freq)
-        x = x + x_freq.permute(0, 2, 3, 1).reshape(B, L, C)
-
-        # 前馈网络
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
-
-class MultiScaleFusion(nn.Module):
-    """多尺度特征融合模块"""
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.conv_low = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim//2, 3, padding=1),
-            nn.GELU()
-        )
-        self.conv_high = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim//2, 3, padding=1),
-            nn.GELU()
-        )
-        self.attn = nn.Sequential(
-            nn.Conv2d(out_dim, out_dim, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        # 低频分量
-        x_low = F.avg_pool2d(x, 3, stride=1, padding=1)
-        x_low = self.conv_low(x_low)
-
-        # 高频分量
-        x_high = x - F.avg_pool2d(x, 3, stride=1, padding=1)
-        x_high = self.conv_high(x_high)
-
-        # 特征融合
-        fused = torch.cat([x_low, x_high], dim=1)
-        attn = self.attn(fused)
-        return fused * attn
-
-class Uformer_Enhanced(nn.Module):
-    def __init__(self, img_size=256, in_chans=3, dd_in=3, embed_dim=32,
-                 depths=[2,2,2,2,2,2,2,2,2], num_heads=[1,2,4,8,16,16,8,4,2],
-                 win_size=8, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, patch_norm=True, use_checkpoint=False,
-                 token_projection='linear', token_mlp='leff', shift_flag=True,
-                 modulator=False, cross_modulator=False, **kwargs):
-        super().__init__()
-
-        # 初始化参数
-        self.num_enc_layers = len(depths)//2
-        self.embed_dim = embed_dim
-        self.reso = img_size
-        self.dd_in = dd_in
-
-        # 输入投影
-        self.input_proj = InputProj(dd_in, embed_dim, 3, 1, nn.LeakyReLU)
-        self.pos_drop = nn.Dropout(drop_rate)
-
-        # 编码器
-        self.encoder = nn.ModuleList()
-        current_dim = embed_dim
-        for i in range(self.num_enc_layers):
-            layer = BasicUformerLayer(
-                dim=current_dim,
-                output_dim=current_dim*2,
-                input_resolution=(img_size//(2**i), img_size//(2**i)),
-                depth=depths[i],
-                num_heads=num_heads[i],
-                win_size=win_size,
-                mlp_ratio=mlp_ratio,
-                token_projection=token_projection,
-                token_mlp=token_mlp,
-                shift_flag=shift_flag
-            )
-            self.encoder.append(layer)
-            self.encoder.append(Downsample(current_dim, current_dim*2))
-            current_dim *= 2
-            img_size //= 2
-
-        # 瓶颈层
-        self.bottleneck = BasicUformerLayer(
-            dim=current_dim,
-            output_dim=current_dim,
-            input_resolution=(img_size, img_size),
-            depth=depths[4],
-            num_heads=num_heads[4],
-            win_size=win_size,
-            mlp_ratio=mlp_ratio,
-            token_projection=token_projection,
-            token_mlp=token_mlp
-        )
-
-        # 解码器
-        self.decoder = nn.ModuleList()
-        for i in range(self.num_enc_layers):
-            self.decoder.append(Upsample(current_dim, current_dim//2))
-            self.decoder.append(MultiScaleFusion(current_dim, current_dim//2))
-            layer = BasicUformerLayer(
-                dim=current_dim,
-                output_dim=current_dim//2,
-                input_resolution=(img_size*(2**(i+1)), img_size*(2**(i+1))),
-                depth=depths[self.num_enc_layers+i],
-                num_heads=num_heads[self.num_enc_layers+i],
-                win_size=win_size,
-                mlp_ratio=mlp_ratio,
-                token_projection=token_projection,
-                token_mlp=token_mlp,
-                shift_flag=shift_flag
-            )
-            self.decoder.append(layer)
-            current_dim //= 2
-            img_size *= 2
-
-        # 输出投影
-        self.output_proj = OutputProj(2*embed_dim, in_chans, 3, 1)
-
-    def forward(self, x, mask=None):
-        # 编码器
-        skips = []
-        y = self.input_proj(x)
-        y = self.pos_drop(y)
-
-        for i, layer in enumerate(self.encoder):
-            if i % 2 == 0:  # Transformer层
-                y = layer(y)
-                skips.append(y)
-            else:  # 下采样
-                y = layer(y)
-
-        # 瓶颈层
-        y = self.bottleneck(y)
-
-        # 解码器
-        for i, layer in enumerate(self.decoder):
-            if i % 3 == 0:  # 上采样
-                y = layer(y)
-            elif i % 3 == 1:  # 多尺度融合
-                skip = skips.pop()
-                B, L, C = y.shape
-                H = W = int(math.sqrt(L))
-                y = y.view(B, C, H, W)
-                y = layer(y + skip.view(B, -1, H, W))
-            else:  # Transformer层
-                y = layer(y)
-
-        # 输出
-        return self.output_proj(y)
 
 if __name__ == "__main__":
     resolution = 256

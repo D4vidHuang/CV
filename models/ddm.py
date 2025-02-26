@@ -16,7 +16,7 @@ from models.ICRA import create_gen_nets
 from models.onego_genotypes_searched import architectures
 from models.onego_train_model import Raincleaner_train
 from models.IDT import create_IDT_nets
-from models.Uformer import create_uformer_nets, create_uformer_nets_frequency, create_uformer_nets_enhanced
+from models.Uformer import create_uformer_nets, create_uformer_nets_frequency
 from models.restormer import create_restormer_nets
 from models.atgan import create_atgan_nets
 
@@ -194,11 +194,6 @@ class DenoisingDiffusion(object):
             # self.charbonnierCriterion = CharbonnierLoss().cuda()
             assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
 
-        if self.args.test_set == 'Uformer_Enhanced':
-            self.model = create_uformer_nets_enhanced()
-            self.model_name = 'Uformer_Enhanced'
-            assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
-
         if self.args.test_set == 'restormer':
             self.model = create_restormer_nets()
             self.model_name = 'restormer'
@@ -245,7 +240,7 @@ class DenoisingDiffusion(object):
         #     eps=1e-8  # Small epsilon for numerical stability
         # ) #rdiffusion
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=0.002 , betas=(0.9, 0.999), eps=1e-8, #0.0002
-                    weight_decay=0.02)
+                    weight_decay=0.02) #uformer frequency
         if self.args.test_set in ['RDiffusion', 'Raindrop_DiT', 'RDiffusion_frequency']:
             self.ema_helper.load_state_dict(checkpoint['ema_helper'])
             if ema:
@@ -267,7 +262,7 @@ class DenoisingDiffusion(object):
 
 
     def train(self, DATASET):
-        torch.autograd.set_detect_anomaly(True)
+        # torch.autograd.set_detect_anomaly(True)
         cudnn.benchmark = True
         train_loader, val_loader = DATASET.get_loaders()
         LossL1 = torch.nn.L1Loss(reduce=True, size_average=True)

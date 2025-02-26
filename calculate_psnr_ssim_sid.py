@@ -36,7 +36,7 @@ def generate_gt_path(time_of_day):
 gt_path = generate_gt_path(time_of_day)
 results_path = gt_path.replace('gt', 'output')
 # gt_path = 'results/gt/'
-print(results_path)
+print('result path', results_path)
 
 imgsName = sorted(os.listdir(results_path))
 imgslist = []
