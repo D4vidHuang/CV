@@ -1,11 +1,11 @@
 data:
     dataset: "RainDrop"
-#    image_size: 64 # Raindrop_DiT, RDiffusion, onego
+    image_size: 64 # Raindrop_DiT, RDiffusion, onego
     image_size: 256 # ICRA, Uformer, atgan
     # image_size: 128 # IDT, restormer
     channels: 3
     num_workers: 8
-    data_dir: "E:/CVPR2025_Raindrop/DayRainDrop_Train"
+    data_dir: "/Users/catherine/Documents/2024/Q3/CV/dataset/DayRainDrop_Train"
     conditional: True
 
 model:
@@ -28,11 +28,11 @@ diffusion:
 
 training:
 #    #-----------Raindrop_DiT, RDiffusion, onego, ICRA--------------
-#    patch_n: 4
-#    batch_size: 16
+    patch_n: 4
+    batch_size: 16
      #---------IDT Uformer restormer--------------
-    patch_n: 1
-    batch_size: 4
+    # patch_n: 1
+    # batch_size: 4
     #-----------atgan--------------
     # patch_n: 1
     # batch_size: 32

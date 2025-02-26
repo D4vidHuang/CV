@@ -1,6 +1,6 @@
 data:
     dataset: "RainDrop"
-    #image_size: 64 # DIT, RDiffusion, onego
+    # image_size: 64 # DIT, RDiffusion, onego
     image_size: 256 # ICRA, Uformer, atgan
     # image_size: 128 # IDT, restormer
     channels: 3
