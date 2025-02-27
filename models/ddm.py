@@ -40,6 +40,7 @@ class SSIMLoss(nn.Module):
         return (1 - ssim_val / channel).mean()  # (1 - SSIM) as loss
     
     def _ssim(self, img1, img2):
+        self.kernel = self.kernel.to(img1.device)
         mu1 = F.conv2d(img1, self.kernel, padding=self.kernel_size//2, groups=1)
         mu2 = F.conv2d(img2, self.kernel, padding=self.kernel_size//2, groups=1)
         
