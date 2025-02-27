@@ -1,3 +1,7 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+import torch
+torch.cuda.is_available()
 import argparse
 import os
 import random
@@ -60,7 +64,7 @@ def main():
     args, config = parse_args_and_config()
 
     # setup device to run
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     print("Using device: {}".format(device))
     config.device = device
 

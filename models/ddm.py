@@ -19,7 +19,8 @@ from models.IDT import create_IDT_nets
 from models.Uformer import create_uformer_nets, create_uformer_nets_frequency
 from models.restormer import create_restormer_nets
 from models.atgan import create_atgan_nets
-
+import torch.nn.functional as F
+import torchvision.models as models
 # New SSIMloss and VGG Perceptual Loss
 class SSIMLoss(nn.Module):
     def __init__(self):
@@ -324,7 +325,7 @@ class DenoisingDiffusion(object):
         self.num_timesteps = betas.shape[0]
 
     def load_ddm_ckpt(self, load_path, ema=False):
-        checkpoint = utils.logging.load_checkpoint(load_path, None)
+        checkpoint = utils.logging.load_checkpoint(load_path, "cuda:0")
         self.start_epoch = checkpoint['epoch']
         self.step = checkpoint['step']
         # self.model.load_state_dict(checkpoint['state_dict'], strict=True)
