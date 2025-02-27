@@ -32,8 +32,12 @@ class RainDrop:
                 self.list.append(nfolder)
 
         # self.testlist = random.sample(self.list, 20)
-        self.list = self.list[:121]
-        self.testlist = self.list[:20]
+        # self.list = self.list[:121]
+
+        # self.testlist = self.list[:20]
+        # self.testlist.append('000164')
+
+        self.testlist = ['00212']
 
         # Example: print the selected folder names
         self.trainlist =  [x for x in self.list if x not in self.testlist]
