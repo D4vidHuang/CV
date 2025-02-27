@@ -1339,10 +1339,25 @@ class Uformer_frequency(nn.Module):
                  cross_modulator=False, **kwargs):
         super().__init__()
 
-        self.b1 = 1.5
-        self.b2 = 1.6
-        self.s1 = 0.9
-        self.s2 = 0.9
+        # self.b1 = nn.Parameter(torch.tensor(1.6, dtype=torch.float32))
+        # self.b2 = nn.Parameter(torch.tensor(1.5, dtype=torch.float32))
+        self.b3 = nn.Parameter(torch.tensor(1.1, dtype=torch.float32))
+        self.b4 = nn.Parameter(torch.tensor(1.1, dtype=torch.float32))
+
+        # self.s1 = nn.Parameter(torch.randn(4, 1024, 128, dtype=torch.float32))
+        # self.s2 = nn.Parameter(torch.randn(4, 4096, 64, dtype=torch.float32))
+        # self.s3 = nn.Parameter(torch.randn(4, 16384, 32, dtype=torch.float32))
+        # self.s4 = nn.Parameter(torch.randn(4, 65536, 16,dtype=torch.float32))
+
+        self.s1 = nn.Parameter(torch.ones(4, 1024, 256, dtype=torch.float32))
+        self.s2 = nn.Parameter(torch.ones(4, 4096, 128, dtype=torch.float32))
+        self.s3 = nn.Parameter(torch.ones(4, 16384, 64, dtype=torch.float32))
+        self.s4 = nn.Parameter(torch.ones(4, 65536, 32, dtype=torch.float32))
+
+        self.threshold1 = 0.7
+        self.threshold2 = 0.8
+        self.threshold3 = 0.9
+        self.threshold4 = 0.99
 
         self.num_enc_layers = len(depths)//2
         self.num_dec_layers = len(depths)//2
@@ -1546,14 +1561,452 @@ class Uformer_frequency(nn.Module):
         # FFT
         x_freq = fft.fftn(x, dim=(-2, -1))  # Compute FFT along spatial dimensions
         x_freq = fft.fftshift(x_freq, dim=(-2, -1))  # Shift zero frequency to the center
+        if(x_freq.shape != scale.shape):
+            print('x_freq', x_freq.shape)
+            # repeat_factor = scale.shape[0] // x_freq.shape[0]
+            # x_freq = x_freq.repeat(repeat_factor, 1, 1)
+            B, _, _ = x_freq.shape
+            x_freq = x_freq * scale[:B]
+            x_freq = fft.ifftshift(x_freq, dim=(-2, -1))  # Shift back
+            x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real  # Compute inverse FFT
 
-        C, H, W = x_freq.shape
-        mask = torch.ones((C, H, W), device=x.device)  # Create mask of shape (C, H, W)
+            return x_filtered
+        # C, H, W = x_freq.shape
+        #
+        #
+        # mask = torch.ones((C, H, W), device=x.device) * scale
+        #
+        # # Set the low-frequency region (center) to 1 (no scaling)
+        # crow, ccol = H // 2, W // 2
+        # threCrow = int(threshold * crow)
+        # threCcol = int(threshold * ccol)
+        # mask[..., crow - threCrow:crow + threCrow, ccol - threCcol:ccol + threCcol] = 1.0
 
         # Define central region
-        crow, ccol = H // 2, W // 2
+        # mask = torch.ones((C, H, W), device=x.device)  # Create mask of shape (C, H, W)
+        # crow, ccol = H // 2, W // 2
+        # mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
+
+
+        x_freq = x_freq * scale  # Apply frequency mask
+
+        # IFFT
+        x_freq = fft.ifftshift(x_freq, dim=(-2, -1))  # Shift back
+        x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real  # Compute inverse FFT
+
+        return x_filtered
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {'absolute_pos_embed'}
+
+    @torch.jit.ignore
+    def no_weight_decay_keywords(self):
+        return {'relative_position_bias_table'}
+
+    def extra_repr(self) -> str:
+        return f"embed_dim={self.embed_dim}, token_projection={self.token_projection}, token_mlp={self.mlp},win_size={self.win_size}"
+
+    def forward(self, x, mask=None):
+        # Input Projection
+        y = self.input_proj(x)
+        y = self.pos_drop(y)
+        #Encoder
+        conv0 = self.encoderlayer_0(y,mask=mask)
+        pool0 = self.dowsample_0(conv0)
+        conv1 = self.encoderlayer_1(pool0,mask=mask)
+        pool1 = self.dowsample_1(conv1)
+        conv2 = self.encoderlayer_2(pool1,mask=mask)
+        pool2 = self.dowsample_2(conv2)
+        conv3 = self.encoderlayer_3(pool2,mask=mask)
+        pool3 = self.dowsample_3(conv3)
+
+        # Bottleneck
+        conv4 = self.conv(pool3, mask=mask)
+
+        #Decoder
+        up0 = self.upsample_0(conv4)
+
+        # # FreeU
+        # x_avg = up0.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
+        #
+        # # Step 2: Compute global min and max across spatial dimensions (H, W)
+        # min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
+        # max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
+        #
+        # # Step 3: Normalize (Avoid division by zero)
+        # hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        # up0 = up0.clone()
+        # up0[:up0.shape[0]//2] = up0[:up0.shape[0]//2].clone() * ((self.b1 - 1 ) * hidden_mean + 1)
+        # conv3 = self.Fourier_filter_free_3d(conv3, threshold=self.threshold1, scale=self.s1)
+
+
+        deconv0 = (torch.cat([up0,conv3],-1))
+        if(deconv0.shape[0] != self.s1.shape[0]):
+            deconv0 = deconv0 * self.s1[deconv0.shape[0]]
+        else:
+            deconv0 = deconv0 * self.s1
+        deconv0 = self.decoderlayer_0(deconv0,mask=mask)
+
+        up1 = self.upsample_1(deconv0)
+        # #FreeU
+        # x_avg1 = up1.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
+        #
+        # # Step 2: Compute global min and max across spatial dimensions (H, W)
+        # min_val1 = x_avg1.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
+        # max_val1 = x_avg1.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
+        #
+        # # Step 3: Normalize (Avoid division by zero)
+        # hidden_mean1 = (x_avg1 - min_val1) / (max_val1 - min_val1 + 1e-8)
+        #
+        #
+        # # Apply the normalization formula from the equation
+        # # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
+        # up1 = up1.clone()
+        # up1[:up1.shape[0]//2] = up1[:up1.shape[0]//2].clone() * ((self.b2 - 1 ) * hidden_mean1 + 1)
+        # conv2 = self.Fourier_filter_free_3d(conv2, threshold=self.threshold2, scale=self.s2)
+
+        deconv1 = torch.cat([up1,conv2],-1)
+        if (deconv1.shape[0] != self.s2.shape[0]):
+            deconv1 = deconv1 * self.s2[deconv1.shape[0]]
+        else:
+            deconv1 = deconv1 * self.s2
+        deconv1 = self.decoderlayer_1(deconv1,mask=mask)
+
+        up2 = self.upsample_2(deconv1)
+
+        # # FreeU
+        # x_avg = up2.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
+        # min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
+        # max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
+        # hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        #
+        # up2 = up2.clone()
+        # up2[:up2.shape[0]//2]= up2[:up2.shape[0]//2].clone() * ((self.b3 - 1 ) * hidden_mean + 1)
+        # conv1 = self.Fourier_filter_free_3d(conv1, threshold=self.threshold3, scale=self.s3)
+
+        deconv2 = torch.cat([up2,conv1],-1)
+        if (deconv2.shape[0] != self.s3.shape[0]):
+            deconv2 = deconv2 * self.s3[deconv2.shape[0]]
+        else:
+            deconv2 = deconv2 * self.s3
+        deconv2 = self.decoderlayer_2(deconv2,mask=mask)
+
+        up3 = self.upsample_3(deconv2)
+
+        # #FreeU
+        # x_avg = up3.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
+        # min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
+        # max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
+        # hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        # up3 = up3.clone()
+        # up3[:up3.shape[0] // 2] = up3[:up3.shape[0] // 2].clone() * ((self.b4 - 1) * hidden_mean + 1)
+        # conv0 = self.Fourier_filter_free_3d(conv0, threshold=self.threshold4, scale=self.s4)
+
+
+        deconv3 = torch.cat([up3,conv0],-1)
+        if (deconv3.shape[0] != self.s4.shape[0]):
+            deconv3 = deconv3 * self.s4[deconv3.shape[0]]
+        else:
+            deconv3 = deconv3 * self.s4
+        deconv3 = self.decoderlayer_3(deconv3,mask=mask)
+
+        # Output Projection
+        y = self.output_proj(deconv3)
+        return x + y if self.dd_in ==3 else y
+
+    def flops(self):
+        flops = 0
+        # Input Projection
+        flops += self.input_proj.flops(self.reso,self.reso)
+        # Encoder
+        flops += self.encoderlayer_0.flops()+self.dowsample_0.flops(self.reso,self.reso)
+        flops += self.encoderlayer_1.flops()+self.dowsample_1.flops(self.reso//2,self.reso//2)
+        flops += self.encoderlayer_2.flops()+self.dowsample_2.flops(self.reso//2**2,self.reso//2**2)
+        flops += self.encoderlayer_3.flops()+self.dowsample_3.flops(self.reso//2**3,self.reso//2**3)
+
+        # Bottleneck
+        flops += self.conv.flops()
+
+        # Decoder
+        flops += self.upsample_0.flops(self.reso//2**4,self.reso//2**4)+self.decoderlayer_0.flops()
+        flops += self.upsample_1.flops(self.reso//2**3,self.reso//2**3)+self.decoderlayer_1.flops()
+        flops += self.upsample_2.flops(self.reso//2**2,self.reso//2**2)+self.decoderlayer_2.flops()
+        flops += self.upsample_3.flops(self.reso//2,self.reso//2)+self.decoderlayer_3.flops()
+
+        # Output Projection
+        flops += self.output_proj.flops(self.reso,self.reso)
+        return flops
+
+class Uformer_frequency_v2(nn.Module):
+    def __init__(self, img_size=256, in_chans=3, dd_in=3,
+                 embed_dim=32, depths=[2, 2, 2, 2, 2, 2, 2, 2, 2], num_heads=[1, 2, 4, 8, 16, 16, 8, 4, 2],
+                 win_size=8, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+                 norm_layer=nn.LayerNorm, patch_norm=True,
+                 use_checkpoint=False, token_projection='linear', token_mlp='leff',
+                 dowsample=Downsample, upsample=Upsample, shift_flag=True, modulator=False,
+                 cross_modulator=False, **kwargs):
+        super().__init__()
+
+        self.b1 = nn.Parameter(torch.tensor(1.6, dtype=torch.float32))
+        self.b2 = nn.Parameter(torch.tensor(1.5, dtype=torch.float32))
+        self.b3 = nn.Parameter(torch.tensor(1.1, dtype=torch.float32))
+        self.b4 = nn.Parameter(torch.tensor(1.1, dtype=torch.float32))
+
+        # self.s1 = nn.Parameter(torch.randn(4, 1024, 128, dtype=torch.float32))
+        # self.s2 = nn.Parameter(torch.randn(4, 4096, 64, dtype=torch.float32))
+        # self.s3 = nn.Parameter(torch.randn(4, 16384, 32, dtype=torch.float32))
+        # self.s4 = nn.Parameter(torch.randn(4, 65536, 16,dtype=torch.float32))
+        self.s1 = nn.Parameter(torch.ones(4, 1024, 128, dtype=torch.float32))
+        self.s2 = nn.Parameter(torch.ones(4, 4096, 64, dtype=torch.float32))
+        self.s3 = nn.Parameter(torch.ones(4, 16384, 32, dtype=torch.float32))
+        self.s4 = nn.Parameter(torch.ones(4, 65536, 16, dtype=torch.float32))
+
+        self.threshold1 = 0.7
+        self.threshold2 = 0.8
+        self.threshold3 = 0.9
+        self.threshold4 = 0.99
+
+        self.num_enc_layers = len(depths)//2
+        self.num_dec_layers = len(depths)//2
+        self.embed_dim = embed_dim
+        self.patch_norm = patch_norm
+        self.mlp_ratio = mlp_ratio
+        self.token_projection = token_projection
+        self.mlp = token_mlp
+        self.win_size =win_size
+        self.reso = img_size
+        self.pos_drop = nn.Dropout(p=drop_rate)
+        self.dd_in = dd_in
+
+        # stochastic depth
+        enc_dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths[:self.num_enc_layers]))]
+        conv_dpr = [drop_path_rate]*depths[4]
+        dec_dpr = enc_dpr[::-1]
+
+        # build layers
+
+        # Input/Output
+        self.input_proj = InputProj(in_channel=dd_in, out_channel=embed_dim, kernel_size=3, stride=1, act_layer=nn.LeakyReLU)
+        self.output_proj = OutputProj(in_channel=2*embed_dim, out_channel=in_chans, kernel_size=3, stride=1)
+
+        # Encoder
+        self.encoderlayer_0 = BasicUformerLayer(dim=embed_dim,
+                                                output_dim=embed_dim,
+                                                input_resolution=(img_size,
+                                                                  img_size),
+                                                depth=depths[0],
+                                                num_heads=num_heads[0],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=enc_dpr[sum(depths[:0]):sum(depths[:1])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag)
+        self.dowsample_0 = dowsample(embed_dim, embed_dim*2)
+        self.encoderlayer_1 = BasicUformerLayer(dim=embed_dim*2,
+                                                output_dim=embed_dim*2,
+                                                input_resolution=(img_size // 2,
+                                                                  img_size // 2),
+                                                depth=depths[1],
+                                                num_heads=num_heads[1],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=enc_dpr[sum(depths[:1]):sum(depths[:2])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag)
+        self.dowsample_1 = dowsample(embed_dim*2, embed_dim*4)
+        self.encoderlayer_2 = BasicUformerLayer(dim=embed_dim*4,
+                                                output_dim=embed_dim*4,
+                                                input_resolution=(img_size // (2 ** 2),
+                                                                  img_size // (2 ** 2)),
+                                                depth=depths[2],
+                                                num_heads=num_heads[2],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=enc_dpr[sum(depths[:2]):sum(depths[:3])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag)
+        self.dowsample_2 = dowsample(embed_dim*4, embed_dim*8)
+        self.encoderlayer_3 = BasicUformerLayer(dim=embed_dim*8,
+                                                output_dim=embed_dim*8,
+                                                input_resolution=(img_size // (2 ** 3),
+                                                                  img_size // (2 ** 3)),
+                                                depth=depths[3],
+                                                num_heads=num_heads[3],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=enc_dpr[sum(depths[:3]):sum(depths[:4])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag)
+        self.dowsample_3 = dowsample(embed_dim*8, embed_dim*16)
+
+        # Bottleneck
+        self.conv = BasicUformerLayer(dim=embed_dim*16,
+                                      output_dim=embed_dim*16,
+                                      input_resolution=(img_size // (2 ** 4),
+                                                        img_size // (2 ** 4)),
+                                      depth=depths[4],
+                                      num_heads=num_heads[4],
+                                      win_size=win_size,
+                                      mlp_ratio=self.mlp_ratio,
+                                      qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                      drop=drop_rate, attn_drop=attn_drop_rate,
+                                      drop_path=conv_dpr,
+                                      norm_layer=norm_layer,
+                                      use_checkpoint=use_checkpoint,
+                                      token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag)
+
+        # Decoder
+        self.upsample_0 = upsample(embed_dim*16, embed_dim*8)
+        self.decoderlayer_0 = BasicUformerLayer(dim=embed_dim*16,
+                                                output_dim=embed_dim*16,
+                                                input_resolution=(img_size // (2 ** 3),
+                                                                  img_size // (2 ** 3)),
+                                                depth=depths[5],
+                                                num_heads=num_heads[5],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=dec_dpr[:depths[5]],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag,
+                                                modulator=modulator,cross_modulator=cross_modulator)
+        self.upsample_1 = upsample(embed_dim*16, embed_dim*4)
+        self.decoderlayer_1 = BasicUformerLayer(dim=embed_dim*8,
+                                                output_dim=embed_dim*8,
+                                                input_resolution=(img_size // (2 ** 2),
+                                                                  img_size // (2 ** 2)),
+                                                depth=depths[6],
+                                                num_heads=num_heads[6],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=dec_dpr[sum(depths[5:6]):sum(depths[5:7])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag,
+                                                modulator=modulator,cross_modulator=cross_modulator)
+        self.upsample_2 = upsample(embed_dim*8, embed_dim*2)
+        self.decoderlayer_2 = BasicUformerLayer(dim=embed_dim*4,
+                                                output_dim=embed_dim*4,
+                                                input_resolution=(img_size // 2,
+                                                                  img_size // 2),
+                                                depth=depths[7],
+                                                num_heads=num_heads[7],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=dec_dpr[sum(depths[5:7]):sum(depths[5:8])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag,
+                                                modulator=modulator,cross_modulator=cross_modulator)
+        self.upsample_3 = upsample(embed_dim*4, embed_dim)
+        self.decoderlayer_3 = BasicUformerLayer(dim=embed_dim*2,
+                                                output_dim=embed_dim*2,
+                                                input_resolution=(img_size,
+                                                                  img_size),
+                                                depth=depths[8],
+                                                num_heads=num_heads[8],
+                                                win_size=win_size,
+                                                mlp_ratio=self.mlp_ratio,
+                                                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                drop=drop_rate, attn_drop=attn_drop_rate,
+                                                drop_path=dec_dpr[sum(depths[5:8]):sum(depths[5:9])],
+                                                norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
+                                                token_projection=token_projection,token_mlp=token_mlp,shift_flag=shift_flag,
+                                                modulator=modulator,cross_modulator=cross_modulator)
+
+        self.apply(self._init_weights)
+
+    def Fourier_filter_free(self, x, threshold, scale):
+        # FFT
+        x_freq = fft.fftn(x, dim=(-2, -1))
+        x_freq = fft.fftshift(x_freq, dim=(-2, -1))
+
+        B, C, H, W = x_freq.shape
+        mask = torch.ones((B, C, H, W)).cuda()
+
+        crow, ccol = H // 2, W //2
         mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
-        x_freq = x_freq * mask.clone()  # Apply frequency mask
+        x_freq = x_freq * mask
+
+        # IFFT
+        x_freq = fft.ifftshift(x_freq, dim=(-2, -1))
+        x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real
+
+        return x_filtered
+
+    def Fourier_filter_free_3d(self, x, threshold, scale):
+        """
+        Apply a Fourier-based low-pass filter to a 3D tensor (C, H, W).
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (C, H, W).
+            threshold (int): The cutoff threshold for the low-pass filter.
+            scale (float): Scaling factor for the filtered frequencies.
+
+        Returns:
+            torch.Tensor: Filtered tensor of shape (C, H, W).
+        """
+        # FFT
+        x_freq = fft.fftn(x, dim=(-2, -1))  # Compute FFT along spatial dimensions
+        x_freq = fft.fftshift(x_freq, dim=(-2, -1))  # Shift zero frequency to the center
+        if(x_freq.shape != scale.shape):
+            print('x_freq', x_freq.shape)
+            # repeat_factor = scale.shape[0] // x_freq.shape[0]
+            # x_freq = x_freq.repeat(repeat_factor, 1, 1)
+            B, _, _ = x_freq.shape
+            x_freq = x_freq * scale[:B]
+            x_freq = fft.ifftshift(x_freq, dim=(-2, -1))  # Shift back
+            x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real  # Compute inverse FFT
+
+            return x_filtered
+        # C, H, W = x_freq.shape
+        #
+        #
+        # mask = torch.ones((C, H, W), device=x.device) * scale
+        #
+        # # Set the low-frequency region (center) to 1 (no scaling)
+        # crow, ccol = H // 2, W // 2
+        # threCrow = int(threshold * crow)
+        # threCcol = int(threshold * ccol)
+        # mask[..., crow - threCrow:crow + threCrow, ccol - threCcol:ccol + threCcol] = 1.0
+
+        # Define central region
+        # mask = torch.ones((C, H, W), device=x.device)  # Create mask of shape (C, H, W)
+        # crow, ccol = H // 2, W // 2
+        # mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
+
+
+        x_freq = x_freq * scale  # Apply frequency mask
 
         # IFFT
         x_freq = fft.ifftshift(x_freq, dim=(-2, -1))  # Shift back
@@ -1601,6 +2054,7 @@ class Uformer_frequency(nn.Module):
         #Decoder
         # up0 = self.upsample_0(conv4)
 
+        # FreeU
         up0 = self.upsample_0(conv4)
         x_avg = up0.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
 
@@ -1610,23 +2064,16 @@ class Uformer_frequency(nn.Module):
 
         # Step 3: Normalize (Avoid division by zero)
         hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        up0 = up0.clone()
+        up0[:up0.shape[0]//2] = up0[:up0.shape[0]//2].clone() * ((self.b1 - 1 ) * hidden_mean + 1)
+        conv3 = self.Fourier_filter_free_3d(conv3, threshold=self.threshold1, scale=self.s1)
 
-
-        # Apply the normalization formula from the equation
-        # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
-
-        up0 = up0 * ((self.b1 - 1 ) * hidden_mean + 1)
-        # up0_first = up0[:up0.shape[0] // 2] * (((self.b1 - 1) * hidden_mean) + 1)
-        # up0_rest = up0[up0.shape[0] // 2:]
-        # up0 = torch.cat([up0_first, up0_rest], dim=0)
-
-        conv3 = self.Fourier_filter_free_3d(conv3, threshold=5, scale=self.s1)
 
         deconv0 = torch.cat([up0,conv3],-1)
         deconv0 = self.decoderlayer_0(deconv0,mask=mask)
 
         up1 = self.upsample_1(deconv0)
-
+        #FreeU
         x_avg1 = up1.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
 
         # Step 2: Compute global min and max across spatial dimensions (H, W)
@@ -1639,41 +2086,40 @@ class Uformer_frequency(nn.Module):
 
         # Apply the normalization formula from the equation
         # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
-
-        up1 = up1 * ((self.b1 - 1 ) * hidden_mean1 + 1)
-
-        conv2 = self.Fourier_filter_free_3d(conv2, threshold=5, scale=self.s1)
-
+        up1 = up1.clone()
+        up1[:up1.shape[0]//2] = up1[:up1.shape[0]//2].clone() * ((self.b2 - 1 ) * hidden_mean1 + 1)
+        conv2 = self.Fourier_filter_free_3d(conv2, threshold=self.threshold2, scale=self.s2)
 
         deconv1 = torch.cat([up1,conv2],-1)
         deconv1 = self.decoderlayer_1(deconv1,mask=mask)
 
         up2 = self.upsample_2(deconv1)
 
+        # FreeU
         x_avg = up2.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
-
-        # Step 2: Compute global min and max across spatial dimensions (H, W)
         min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
         max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
-
-        # Step 3: Normalize (Avoid division by zero)
         hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
 
-
-        # Apply the normalization formula from the equation
-        # hidden_mean = (hidden_mean - hidden_min.view(B, C, 1, 1)) / (hidden_max - hidden_min + 1).view(B, C, 1, 1)
-
-        up2= up2 * ((self.b1 - 1 ) * hidden_mean + 1)
-        # up0_first = up0[:up0.shape[0] // 2] * (((self.b1 - 1) * hidden_mean) + 1)
-        # up0_rest = up0[up0.shape[0] // 2:]
-        # up0 = torch.cat([up0_first, up0_rest], dim=0)
-
-        conv13 = self.Fourier_filter_free_3d(conv1, threshold=5, scale=self.s1)
+        up2 = up2.clone()
+        up2[:up2.shape[0]//2]= up2[:up2.shape[0]//2].clone() * ((self.b3 - 1 ) * hidden_mean + 1)
+        conv1 = self.Fourier_filter_free_3d(conv1, threshold=self.threshold3, scale=self.s3)
 
         deconv2 = torch.cat([up2,conv1],-1)
         deconv2 = self.decoderlayer_2(deconv2,mask=mask)
 
         up3 = self.upsample_3(deconv2)
+
+        #FreeU
+        x_avg = up3.mean(dim=0, keepdim=True)  # Shape: (1, H, W)
+        min_val = x_avg.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]  # Scalar min per map
+        max_val = x_avg.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]  # Scalar max per map
+        hidden_mean = (x_avg - min_val) / (max_val - min_val + 1e-8)
+        up3 = up3.clone()
+        up3[:up3.shape[0] // 2] = up3[:up3.shape[0] // 2].clone() * ((self.b4 - 1) * hidden_mean + 1)
+        conv0 = self.Fourier_filter_free_3d(conv0, threshold=self.threshold4, scale=self.s4)
+
+
         deconv3 = torch.cat([up3,conv0],-1)
         deconv3 = self.decoderlayer_3(deconv3,mask=mask)
 
@@ -1725,12 +2171,16 @@ def create_uformer_nets_frequency():
                        win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
     return  networks
 
-def create_uformer_nets_enhanced():
+def create_uformer_nets_frequency_v2():
+    # networks = IDT(in_chans=3, embed_dim=32, depths=[3, 3, 2, 2, 1, 1, 2, 2, 3],
+    #                             num_heads=[1, 2, 4, 8, 16, 16, 8, 4, 2], win_size=8, mlp_ratio=4.0,
+    #                             qkv_bias=True)
     input_size = 256
     depths=[2, 2, 2, 2, 2, 2, 2, 2, 2]
-    networks = Uformer_Enhanced(img_size=input_size, embed_dim=16,depths=depths,
-                                 win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
+    networks = Uformer_frequency_v2(img_size=input_size, embed_dim=16,depths=depths,
+                       win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
     return  networks
+
 
 def params_count(net):
     list1 = []
@@ -1744,260 +2194,7 @@ def params_count(net):
     return n_parameters
 
 
-import torch
-import torch.nn as nn
-import torch.utils.checkpoint as checkpoint
-from timm.layers import DropPath, to_2tuple, trunc_normal_
-import torch.nn.functional as F
-from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
-import math
-import numpy as np
-import time
-from torch import einsum
-import torch.fft as fft
 
-class AdaptiveFourierFilter(nn.Module):
-    """自适应频域滤波器，包含可学习阈值和缩放因子"""
-    def __init__(self, embed_dim):
-        super().__init__()
-        # 可学习的频率阈值控制参数
-        self.threshold_ratio = nn.Parameter(torch.tensor(0.2))
-        # 可学习的缩放因子
-        self.scale = nn.Parameter(torch.tensor(0.9))
-
-        # 自适应参数范围限制
-        self.threshold_ratio.data.clamp_(0.05, 0.5)
-        self.scale.data.clamp_(0.5, 1.5)
-
-    def forward(self, x):
-        """
-        输入形状: (C, H, W)
-        输出形状: (C, H, W)
-        """
-        # FFT变换
-        x_freq = fft.fftn(x, dim=(-2, -1))
-        x_freq = fft.fftshift(x_freq, dim=(-2, -1))
-
-        C, H, W = x_freq.shape
-        mask = torch.ones_like(x_freq)
-
-        # 动态计算阈值
-        threshold = int(min(H, W) * self.threshold_ratio)
-        crow, ccol = H//2, W//2
-        start_row = max(0, crow - threshold)
-        end_row = min(H, crow + threshold)
-        start_col = max(0, ccol - threshold)
-        end_col = min(W, ccol + threshold)
-
-        # 应用动态缩放因子
-        mask[:, start_row:end_row, start_col:end_col] = self.scale
-
-        # 频率滤波
-        filtered_freq = x_freq * mask
-        filtered_freq = fft.ifftshift(filtered_freq, dim=(-2, -1))
-        x_filtered = fft.ifftn(filtered_freq, dim=(-2, -1)).real
-
-        # 残差连接保留原始信息
-        return x_filtered + x * (1 - self.scale.abs())
-
-class EnhancedLeWinTransformerBlock(nn.Module):
-    """增强的Transformer Block，包含通道注意力和动态频域处理"""
-    def __init__(self, dim, input_resolution, num_heads, win_size=8, shift_size=0,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,
-                 token_projection='linear', token_mlp='leff', modulator=False):
-        super().__init__()
-
-        # 原始窗口注意力模块
-        self.norm1 = norm_layer(dim)
-        self.attn = WindowAttention(
-            dim, win_size=to_2tuple(win_size), num_heads=num_heads,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
-            token_projection=token_projection)
-
-        # 通道注意力
-        self.channel_attn = nn.Sequential(
-            nn.Linear(dim, dim // 4),
-            act_layer(),
-            nn.Linear(dim // 4, dim),
-            nn.Sigmoid()
-        )
-
-        # 动态频域处理
-        self.freq_filter = AdaptiveFourierFilter(dim)
-
-        # 前馈网络
-        self.norm2 = norm_layer(dim)
-        self.mlp = LeFF(dim, int(dim*mlp_ratio), act_layer=act_layer, drop=drop)
-
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-
-    def forward(self, x, mask=None):
-        B, L, C = x.shape
-        H = W = int(math.sqrt(L))
-
-        # 窗口注意力
-        shortcut = x
-        x = self.norm1(x)
-        x = self.attn(x, mask=mask)
-
-        # 通道注意力增强
-        ca_weights = self.channel_attn(x.mean(1))  # (B, C)
-        x = x * ca_weights.unsqueeze(1)
-
-        # 首次残差连接
-        x = shortcut + self.drop_path(x)
-
-        # 频域处理
-        x_freq = x.view(B, H, W, C).permute(0, 3, 1, 2)  # (B, C, H, W)
-        x_freq = self.freq_filter(x_freq)
-        x = x + x_freq.permute(0, 2, 3, 1).reshape(B, L, C)
-
-        # 前馈网络
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
-
-class MultiScaleFusion(nn.Module):
-    """多尺度特征融合模块"""
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.conv_low = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim//2, 3, padding=1),
-            nn.GELU()
-        )
-        self.conv_high = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim//2, 3, padding=1),
-            nn.GELU()
-        )
-        self.attn = nn.Sequential(
-            nn.Conv2d(out_dim, out_dim, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        # 低频分量
-        x_low = F.avg_pool2d(x, 3, stride=1, padding=1)
-        x_low = self.conv_low(x_low)
-
-        # 高频分量
-        x_high = x - F.avg_pool2d(x, 3, stride=1, padding=1)
-        x_high = self.conv_high(x_high)
-
-        # 特征融合
-        fused = torch.cat([x_low, x_high], dim=1)
-        attn = self.attn(fused)
-        return fused * attn
-
-class Uformer_Enhanced(nn.Module):
-    def __init__(self, img_size=256, in_chans=3, dd_in=3, embed_dim=32,
-                 depths=[2,2,2,2,2,2,2,2,2], num_heads=[1,2,4,8,16,16,8,4,2],
-                 win_size=8, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, patch_norm=True, use_checkpoint=False,
-                 token_projection='linear', token_mlp='leff', shift_flag=True,
-                 modulator=False, cross_modulator=False, **kwargs):
-        super().__init__()
-
-        # 初始化参数
-        self.num_enc_layers = len(depths)//2
-        self.embed_dim = embed_dim
-        self.reso = img_size
-        self.dd_in = dd_in
-
-        # 输入投影
-        self.input_proj = InputProj(dd_in, embed_dim, 3, 1, nn.LeakyReLU)
-        self.pos_drop = nn.Dropout(drop_rate)
-
-        # 编码器
-        self.encoder = nn.ModuleList()
-        current_dim = embed_dim
-        for i in range(self.num_enc_layers):
-            layer = BasicUformerLayer(
-                dim=current_dim,
-                output_dim=current_dim*2,
-                input_resolution=(img_size//(2**i), img_size//(2**i)),
-                depth=depths[i],
-                num_heads=num_heads[i],
-                win_size=win_size,
-                mlp_ratio=mlp_ratio,
-                token_projection=token_projection,
-                token_mlp=token_mlp,
-                shift_flag=shift_flag
-            )
-            self.encoder.append(layer)
-            self.encoder.append(Downsample(current_dim, current_dim*2))
-            current_dim *= 2
-            img_size //= 2
-
-        # 瓶颈层
-        self.bottleneck = BasicUformerLayer(
-            dim=current_dim,
-            output_dim=current_dim,
-            input_resolution=(img_size, img_size),
-            depth=depths[4],
-            num_heads=num_heads[4],
-            win_size=win_size,
-            mlp_ratio=mlp_ratio,
-            token_projection=token_projection,
-            token_mlp=token_mlp
-        )
-
-        # 解码器
-        self.decoder = nn.ModuleList()
-        for i in range(self.num_enc_layers):
-            self.decoder.append(Upsample(current_dim, current_dim//2))
-            self.decoder.append(MultiScaleFusion(current_dim, current_dim//2))
-            layer = BasicUformerLayer(
-                dim=current_dim,
-                output_dim=current_dim//2,
-                input_resolution=(img_size*(2**(i+1)), img_size*(2**(i+1))),
-                depth=depths[self.num_enc_layers+i],
-                num_heads=num_heads[self.num_enc_layers+i],
-                win_size=win_size,
-                mlp_ratio=mlp_ratio,
-                token_projection=token_projection,
-                token_mlp=token_mlp,
-                shift_flag=shift_flag
-            )
-            self.decoder.append(layer)
-            current_dim //= 2
-            img_size *= 2
-
-        # 输出投影
-        self.output_proj = OutputProj(2*embed_dim, in_chans, 3, 1)
-
-    def forward(self, x, mask=None):
-        # 编码器
-        skips = []
-        y = self.input_proj(x)
-        y = self.pos_drop(y)
-
-        for i, layer in enumerate(self.encoder):
-            if i % 2 == 0:  # Transformer层
-                y = layer(y)
-                skips.append(y)
-            else:  # 下采样
-                y = layer(y)
-
-        # 瓶颈层
-        y = self.bottleneck(y)
-
-        # 解码器
-        for i, layer in enumerate(self.decoder):
-            if i % 3 == 0:  # 上采样
-                y = layer(y)
-            elif i % 3 == 1:  # 多尺度融合
-                skip = skips.pop()
-                B, L, C = y.shape
-                H = W = int(math.sqrt(L))
-                y = y.view(B, C, H, W)
-                y = layer(y + skip.view(B, -1, H, W))
-            else:  # Transformer层
-                y = layer(y)
-
-        # 输出
-        return self.output_proj(y)
 
 if __name__ == "__main__":
     resolution = 256

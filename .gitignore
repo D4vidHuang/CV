@@ -1,0 +1,8 @@
+*.xml
+/.idea
+*.pyc
+/Param
+/RainDrop
+/results
+/shrinkRaindrop
+*.tar

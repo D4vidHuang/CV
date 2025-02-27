@@ -51,7 +51,7 @@ class DiffusiveRestoration:
                         utils.logging.save_image(x_cond[:, :, :, :], os.path.join(image_folder, datasetname,'input',sid, f"{frame}.png"))
                         utils.logging.save_image(x_gt[:, :, :, :], os.path.join(image_folder,datasetname, 'gt', sid, f"{frame}.png"))
 
-                        if self.args.test_set in ['RDiffusion', 'Raindrop_DiT']:
+                        if self.args.test_set in ['RDiffusion', 'Raindrop_DiT', 'RDiffusion_frequency']:
                             x_output = self.diffusive_restoration(x_cond, r=r)
                         else:
                             input_res = self.config.data.image_size

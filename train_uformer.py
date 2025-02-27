@@ -21,17 +21,17 @@ from models import DenoisingDiffusion, DiffusiveRestoration
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description='Training Raindrop Clarity with Patch-Based Denoising Diffusion Models')
-    parser.add_argument("--config", type=str, default='daytime_64.yml',
+    parser.add_argument("--config", type=str, default='daytime_256.yml',
                         help="Path to the config file")
     # parser.add_argument('--resume', default='', type=str,
     #                     help='Path for checkpoint to load and resume')
-    parser.add_argument('--resume', default='RainDrop_ddpm.pth.tar', type=str,
+    parser.add_argument('--resume', default='epoch100.pth.tar', type=str,
                         help='Path for the model checkpoint to load for evaluation')
     parser.add_argument("--grid_r", type=int, default=16,
                         help="Grid cell width r that defines the overlap between patches")
     parser.add_argument("--sampling_timesteps", type=int, default=25,
                         help="Number of implicit sampling steps for validation image patches")
-    parser.add_argument("--test_set", type=str, default='RDiffusion_frequency',
+    parser.add_argument("--test_set", type=str, default='Uformer_frequency',
                         help="restoration test set results: ['Raindrop_DiT', 'RDiffusion', 'IDT', 'restormer', 'Uformer', 'ICRA256', 'onego', 'atgan', 'Uformer_frequency']")
     parser.add_argument("--image_folder", default='results/images/', type=str,
                         help="Location to save restored validation image patches")

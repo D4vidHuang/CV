@@ -32,6 +32,7 @@ class RainDrop:
                 self.list.append(nfolder)
 
         # self.testlist = random.sample(self.list, 20)
+        self.list = self.list[:121]
         self.testlist = self.list[:20]
 
         # Example: print the selected folder names
@@ -81,13 +82,15 @@ class RainDropDataset(torch.utils.data.Dataset):
         gt_names = []
         for i in range(len(filelist)):
             inpdir = os.path.join(self.dir, 'Drop',filelist[i])
-            gtdir = inpdir.replace('/Drop/','/Clear/')
+            # gtdir = inpdir.replace('/Drop/','/Clear/')
+            inpdir = os.path.normpath(inpdir)  # Normalizes slashes based on OS
+            gtdir = inpdir.replace(os.path.normpath('/Drop/'), os.path.normpath('/Clear/'))
             # print(inpdir,gtdir)
             listinpdir = sorted(os.listdir(inpdir))
-            for j in range(len(listinpdir)):
+            for j in range(len(listinpdir)): #len(listinpdir)
                 input_names.append(os.path.join(inpdir, listinpdir[j]))
             listgtdir = sorted(os.listdir(gtdir))
-            for j in range(len(listgtdir)):
+            for j in range(len(listgtdir)): #len(listgtdir)
                 gt_names.append(os.path.join(gtdir, listgtdir[j]))
         print('len(input_names),len(gt_names) = ',len(input_names),len(gt_names))
         # print(input_names)

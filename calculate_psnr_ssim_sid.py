@@ -6,19 +6,21 @@ import lpips
 # loss_fn_alex = lpips.LPIPS(net='alex')
 loss_fn_vgg = lpips.LPIPS(net='vgg')
 
-base_path = '/home1/yeying/release/RDiffusion/results/NightRaindrop/'
-time_of_day = 'night' 
-# base_path = '/home1/yeying/release/RDiffusion/results/RainDrop/'
-# time_of_day = 'day' 
+# base_path = '/home1/yeying/release/RDiffusion/results/NightRaindrop/'
+# time_of_day = 'night'
+base_path = 'results/RainDrop/'
+time_of_day = 'day'
 
-dayend_path   = 'DayRainDrop/gt/'
+dayend_path   = 'DayRainDrop_Train/gt/'
 nightend_path = 'NightRainDrop/gt/'
 
 #model_name   = 'Raindrop_DiT/'
-#model_name   = 'Uformer/'
-model_name   = 'restormer/'
+# model_name   = 'Uformer/'
+model_name   = 'Uformer_frequency/'
+# model_name   = 'restormer/'
 
-#model_name   = 'RDiffusion/'
+# model_name   = 'RDiffusion/'
+# model_name   = 'RDiffusion_frequency/'
 #model_name   = 'IDT/'
 #model_name   = 'onego/'
 #model_name   = 'ICRA256/'
@@ -33,7 +35,8 @@ def generate_gt_path(time_of_day):
 
 gt_path = generate_gt_path(time_of_day)
 results_path = gt_path.replace('gt', 'output')
-print(results_path)
+# gt_path = 'results/gt/'
+print('result path', results_path)
 
 imgsName = sorted(os.listdir(results_path))
 imgslist = []
@@ -59,6 +62,7 @@ for i in range(len(imgslist)):
     # print(imgslist[i])
     res = cv2.imread(imgslist[i], cv2.IMREAD_COLOR)
     gt  = cv2.imread(gtslist[i], cv2.IMREAD_COLOR)
+    # gt = cv2.resize(gt, (256, 256), interpolation=cv2.INTER_LANCZOS4)
     cur_psnr = calculate_psnr(res, gt, test_y_channel=True)
     cur_ssim = calculate_ssim(res, gt, test_y_channel=True)
 
