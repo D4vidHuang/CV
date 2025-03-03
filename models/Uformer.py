@@ -10,7 +10,7 @@ import numpy as np
 import time
 from torch import einsum
 import torch.fft as fft
-
+import clip
 
 class FastLeFF(nn.Module):
     
@@ -2194,6 +2194,82 @@ def params_count(net):
     return n_parameters
 
 
+class StableDiffusionFeatureExtractor(nn.Module):
+    def __init__(self):
+        super(StableDiffusionFeatureExtractor, self).__init__()
+        
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        
+    def forward(self, x):
+        # x: (B, 3, H, W)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        return x 
+    
+class Uformer_stablediffusion(Uformer):
+    def __init__(self, *args, **kwargs):
+        super(Uformer_stablediffusion, self).__init__(*args, **kwargs)
+        self.sd_feature_extractor = StableDiffusionFeatureExtractor()
+        for param in self.sd_feature_extractor.parameters():
+            param.requires_grad = False
+        fusion_in_channels = self.embed_dim + 128
+        self.fusion_conv = nn.Conv2d(fusion_in_channels, self.embed_dim, kernel_size=3, padding=1)
+        self.fusion_output_proj = OutputProj(in_channel=2*self.embed_dim, out_channel=3, kernel_size=3, stride=1)
+
+    def forward(self, x, mask=None):
+        y = self.input_proj(x)
+        y = self.pos_drop(y)
+        conv0 = self.encoderlayer_0(y, mask=mask)
+        pool0 = self.dowsample_0(conv0)
+        conv1 = self.encoderlayer_1(pool0, mask=mask)
+        pool1 = self.dowsample_1(conv1)
+        conv2 = self.encoderlayer_2(pool1, mask=mask)
+        pool2 = self.dowsample_2(conv2)
+        conv3 = self.encoderlayer_3(pool2, mask=mask)
+        pool3 = self.dowsample_3(conv3)
+        conv4 = self.conv(pool3, mask=mask)
+        
+        up0 = self.upsample_0(conv4)
+        deconv0 = torch.cat([up0, conv3], -1)
+        deconv0 = self.decoderlayer_0(deconv0, mask=mask)
+        
+        up1 = self.upsample_1(deconv0)
+        deconv1 = torch.cat([up1, conv2], -1)
+        deconv1 = self.decoderlayer_1(deconv1, mask=mask)
+        
+        up2 = self.upsample_2(deconv1)
+        deconv2 = torch.cat([up2, conv1], -1)
+        deconv2 = self.decoderlayer_2(deconv2, mask=mask)
+        
+        up3 = self.upsample_3(deconv2)
+        deconv3 = torch.cat([up3, conv0], -1)
+        deconv3 = self.decoderlayer_3(deconv3, mask=mask)
+        
+        B, N, C = deconv3.shape
+        H = W = int(math.sqrt(N))
+        deconv3_img = deconv3.transpose(1, 2).contiguous().view(B, C, H, W)
+        
+        sd_features = self.sd_feature_extractor(x)  # 输出形状 (B, 128, H/4, W/4)
+        sd_features_up = F.interpolate(sd_features, size=(H, W), mode='bilinear', align_corners=False)
+        
+        fused = torch.cat([deconv3_img, sd_features_up], dim=1)  # (B, embed_dim+128, H, W)
+        fused = self.fusion_conv(fused)  # (B, embed_dim, H, W)
+        
+        out_features = torch.cat([deconv3_img, fused], dim=1)  # (B, 2*embed_dim, H, W)
+        y_out = self.fusion_output_proj(out_features)
+        
+        if self.dd_in == 3:
+            return x + y_out
+        else:
+            return y_out
 
 
 if __name__ == "__main__":

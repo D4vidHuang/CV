@@ -194,6 +194,13 @@ class DenoisingDiffusion(object):
             # self.charbonnierCriterion = CharbonnierLoss().cuda()
             assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
 
+        if self.args.test_set == 'Uformer_sd':
+            self.model = create_uformer_nets_frequency()
+            self.model_name = 'Uformer_sd'
+            # self.charbonnierCriterion = CharbonnierLoss().cuda()
+            assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
+
+        
         if self.args.test_set == 'restormer':
             self.model = create_restormer_nets()
             self.model_name = 'restormer'
