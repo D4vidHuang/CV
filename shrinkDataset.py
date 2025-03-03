@@ -30,4 +30,4 @@ def extract_top5_images(source_root, dest_root):
                 dest_image_path = os.path.join(dest_class_path, image_file)
                 shutil.copy2(source_image_path, dest_image_path)  # Copy image
 
-extract_top5_images("/Users/davidhuang/Desktop/ComputerVision/DayRainDrop_Train", "shrinkRaindrop")
+extract_top5_images("E:/CVPR2025_Raindrop/DayRainDrop_Train", "shrinkRaindrop")

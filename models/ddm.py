@@ -16,7 +16,7 @@ from models.ICRA import create_gen_nets
 from models.onego_genotypes_searched import architectures
 from models.onego_train_model import Raincleaner_train
 from models.IDT import create_IDT_nets
-from models.Uformer import create_uformer_nets, create_uformer_nets_frequency
+from models.Uformer import create_uformer_nets, create_uformer_nets_frequency, create_uformer_nets_sd
 from models.restormer import create_restormer_nets
 from models.atgan import create_atgan_nets
 
@@ -195,11 +195,10 @@ class DenoisingDiffusion(object):
             assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
 
         if self.args.test_set == 'Uformer_sd':
-            self.model = create_uformer_nets_frequency()
+            self.model = create_uformer_nets_sd()
             self.model_name = 'Uformer_sd'
             # self.charbonnierCriterion = CharbonnierLoss().cuda()
             assert self.config.data.image_size == 256, f"Expected image_size 256, but got {self.config.data.image_size}"
-
         
         if self.args.test_set == 'restormer':
             self.model = create_restormer_nets()

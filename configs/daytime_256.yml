@@ -5,7 +5,7 @@ data:
     # image_size: 128 # IDT, restormer
     channels: 3
     num_workers: 8
-    data_dir: "shrinkRaindrop" #D:/DSAIT/DayRainDrop_Train shrinkRaindrop
+    data_dir: "E:/CVPR2025_Raindrop/DayRainDrop_Train" #D:/DSAIT/DayRainDrop_Train shrinkRaindrop "E:/CVPR2025_Raindrop/DayRainDrop_Train"
     conditional: True
 
 model:

@@ -15,8 +15,8 @@ dayend_path   = 'DayRainDrop_Train/gt/'
 nightend_path = 'NightRainDrop/gt/'
 
 #model_name   = 'Raindrop_DiT/'
-# model_name   = 'Uformer/'
-model_name   = 'Uformer_frequency/'
+model_name   = 'Uformer/'
+# model_name   = 'Uformer_frequency/'
 # model_name   = 'restormer/'
 
 # model_name   = 'RDiffusion/'

@@ -2181,6 +2181,15 @@ def create_uformer_nets_frequency_v2():
                        win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
     return  networks
 
+def create_uformer_nets_sd():
+    # networks = IDT(in_chans=3, embed_dim=32, depths=[3, 3, 2, 2, 1, 1, 2, 2, 3],
+    #                             num_heads=[1, 2, 4, 8, 16, 16, 8, 4, 2], win_size=8, mlp_ratio=4.0,
+    #                             qkv_bias=True)
+    input_size = 256
+    depths=[2, 2, 2, 2, 2, 2, 2, 2, 2]
+    networks = Uformer_stablediffusion(img_size=input_size, embed_dim=16,depths=depths,
+                                 win_size=8, mlp_ratio=4., token_projection='linear', token_mlp='leff', modulator=True, shift_flag=False)
+    return  networks
 
 def params_count(net):
     list1 = []
