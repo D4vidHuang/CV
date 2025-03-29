@@ -1,5 +1,4 @@
 import torch
-import shutil
 import os
 import torchvision.utils as tvu
 
@@ -18,6 +17,6 @@ def save_checkpoint(state, filename):
 
 def load_checkpoint(path, device):
     if device is None:
-        return torch.load(path,  weights_only=False)
+        return torch.load(path)
     else:
         return torch.load(path, map_location=device)

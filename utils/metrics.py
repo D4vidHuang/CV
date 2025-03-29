@@ -208,3 +208,12 @@ def bgr2ycbcr(img, y_only=False):
             img, [[24.966, 112.0, -18.214], [128.553, -74.203, -93.786], [65.481, -37.797, 112.0]]) + [16, 128, 128]
     out_img = _convert_output_type_range(out_img, img_type)
     return out_img
+
+import lpips
+
+def calculate_lpips(img1, img2):
+    loss_fn_vgg = lpips.LPIPS(net='vgg')
+    torchres = torch.from_numpy(img1.transpose((2, 0, 1))).float().unsqueeze(0)
+    torchgt  = torch.from_numpy(img2.transpose((2, 0, 1))).float().unsqueeze(0)
+    cur_lpips = loss_fn_vgg(torchres, torchgt)
+    return cur_lpips.cpu().data.numpy()[0][0][0][0]

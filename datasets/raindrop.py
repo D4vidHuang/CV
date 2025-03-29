@@ -16,44 +16,38 @@ class RainDrop:
         self.transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
 
         self.list = []
-        # for i in range(1,197):
-        #     self.list.append('%05d'%i)
-        # self.testlist = ['00060','00129','00144','00147','00151','00161','00164','00168',
-        # '00173','00174','00176','00181','00184','00185','00186','00187','00188','00189',
-        # '00190','00191','00192','00193','00194','00195','00196','00197']
-        print(config.data.data_dir)
-        for folder in os.listdir(config.data.data_dir):
-            full_path = os.path.join(config.data.data_dir, folder)
-            print(full_path)
-            for nfolder in os.listdir(full_path):
-                print(nfolder)
-                # if os.path.isdir(full_path):
-                #     self.list.append(folder)
-                self.list.append(nfolder)
-
-        # self.testlist = random.sample(self.list, 20)
-        self.testlist = self.list[:20]
-
-        # Example: print the selected folder names
-        self.trainlist =  [x for x in self.list if x not in self.testlist]
+        for i in range(1,212):
+            self.list.append('%05d'%i) 
+        self.testlist = ['00007','00008','00011','00015','00023','00032','00041','00050',
+        '00055','00064','00070','00074','00078','00081','00083','00096','00099',
+        '00101','00121','00146','00150','00156','00157','00161','00169','00172','00192','00199']
+        self.validationlist = [] 
+        self.trainlist =  [x for x in self.list if x not in self.testlist and x not in self.validationlist]
         print('-trainlist-',self.trainlist)
+        print('-validationlist-',self.validationlist)
         print('-testlist-',self.testlist)
+
+        self.resize = config.data.resize
 
     def get_loaders(self, parse_patches=True, validation='raindrop'):
         print("=> evaluating raindrop test set...")
         train_dataset = RainDropDataset(dir=os.path.join(self.config.data.data_dir),
+                                        dataset_type = self.config.data.dataset_type,
                                         n=self.config.training.patch_n,
                                         patch_size=self.config.data.image_size,
                                         transforms=self.transforms,
                                         filelist=self.trainlist,
-                                        parse_patches=parse_patches)
+                                        parse_patches=parse_patches,
+                                        resize=self.resize)
 
         val_dataset = RainDropDataset(dir=os.path.join(self.config.data.data_dir),
+                                      dataset_type = self.config.data.dataset_type,
                                       n=self.config.training.patch_n,
                                       patch_size=self.config.data.image_size,
                                       transforms=self.transforms,
-                                      filelist=self.testlist,
-                                      parse_patches=parse_patches)
+                                      filelist=self.validationlist,
+                                      parse_patches=parse_patches,
+                                      resize=self.resize)
 
 
         if not parse_patches:
@@ -71,30 +65,33 @@ class RainDrop:
 
 
 class RainDropDataset(torch.utils.data.Dataset):
-    def __init__(self, dir, patch_size, n, transforms, filelist=None, parse_patches=True):
+    def __init__(self, dir, dataset_type, patch_size, n, transforms, filelist=None, parse_patches=True, resize=False):
         super().__init__()
         print('-dir-',dir)
+        print(f'using data in {dataset_type} dataset')
 
         self.dir = dir
         train_list = []
         input_names = []
         gt_names = []
         for i in range(len(filelist)):
-            inpdir = os.path.join(self.dir, 'Drop',filelist[i])
-            gtdir = inpdir.replace('/Drop/','/Clear/')
-            # print(inpdir,gtdir)
-            listinpdir = sorted(os.listdir(inpdir))
+            inpdir = os.path.join(self.dir, dataset_type, filelist[i])
+            gtdir = inpdir.replace(f'/{dataset_type}/','/Clear/')
+            # print(f'inpdir is {inpdir}, gtdir is {gtdir}')
+            listinpdir = sorted(os.listdir(inpdir))[:20]  # 只保留前20张图片
             for j in range(len(listinpdir)):
                 input_names.append(os.path.join(inpdir, listinpdir[j]))
-            listgtdir = sorted(os.listdir(gtdir))
+            listgtdir = sorted(os.listdir(gtdir))[:20]  # 只保留前20张图片
             for j in range(len(listgtdir)):
                 gt_names.append(os.path.join(gtdir, listgtdir[j]))
         print('len(input_names),len(gt_names) = ',len(input_names),len(gt_names))
         # print(input_names)
-        print(input_names[0],gt_names[0])
-        print(input_names[1],gt_names[1])
-        print(input_names[-2],gt_names[-2])
-        print(input_names[-1],gt_names[-1])
+        
+        if len(input_names) > 2:
+            print(input_names[0],gt_names[0])
+            print(input_names[1],gt_names[1])
+            print(input_names[-2],gt_names[-2])
+            print(input_names[-1],gt_names[-1])
                 # train_list.append()
             # train_list = os.path.join(dir, filelist)
             # print(train_list)
@@ -109,6 +106,8 @@ class RainDropDataset(torch.utils.data.Dataset):
         self.transforms = transforms
         self.n = n
         self.parse_patches = parse_patches
+        self.resize = resize
+        print('-resize-',self.resize)
 
     @staticmethod
     def get_params(img, output_size, n):
@@ -132,56 +131,39 @@ class RainDropDataset(torch.utils.data.Dataset):
     def get_images(self, index):
         input_name = self.input_names[index]
         gt_name = self.gt_names[index]
-        # print('input_name',input_name)
-        # print('gt_name',gt_name)
-
-        # datasetname = re.split('/', input_name)[-4]
-        # img_vid = re.split('/', input_name)[-2]
-        # img_id = re.split('/', input_name)[-1][:-4]
-        # img_id = datasetname+'__'+img_vid+'__'+img_id
-
-
-        normalized_path = os.path.normpath(input_name)
-        parts = normalized_path.split(os.sep)
-
-        # Check if the path has enough components
-        if len(parts) < 4:
-            raise ValueError(f"Invalid path structure: expected at least 4 parts, got {len(parts)} in '{input_name}'")
-
-        datasetname = parts[-4]
-        img_vid = parts[-2]
-        # Use os.path.splitext to remove the file extension safely
-        img_id = os.path.splitext(parts[-1])[0]
-
-        # Combine the components
-        img_id = datasetname + '__' + img_vid + '__' + img_id
-
-
+        datasetname = re.split('/', input_name)[-4]
+        img_vid = re.split('/', input_name)[-2]
+        img_id = re.split('/', input_name)[-1][:-4]
+        img_id = datasetname+'__'+img_vid+'__'+img_id
         # print('-1-',input_name, gt_name)
         # input_img = PIL.Image.open(os.path.join(self.dir, input_name)) if self.dir else PIL.Image.open(input_name)
         input_img = PIL.Image.open(input_name)
         gt_img = PIL.Image.open(gt_name)
 
+        # Uformer
+        if self.resize:
+            if self.parse_patches:
+                wd_new = 512
+                ht_new = 512
+                input_img = input_img.resize((wd_new, ht_new), PIL.Image.Resampling.LANCZOS)
+                gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.Resampling.LANCZOS)
+                # print('-input_img.shape,gt_img.shape-',input_img.size,gt_img.size)
+                i, j, h, w = self.get_params(input_img, (self.patch_size, self.patch_size), self.n)
+                input_img = self.n_random_crops(input_img, i, j, h, w)
+                gt_img = self.n_random_crops(gt_img, i, j, h, w)
+                outputs = [torch.cat([self.transforms(input_img[i]), self.transforms(gt_img[i])], dim=0)
+                        for i in range(self.n)]
+                return torch.stack(outputs, dim=0), img_id
+            else:
+                wd_new = 256
+                ht_new = 256
+                input_img = input_img.resize((wd_new, ht_new), PIL.Image.Resampling.LANCZOS)
+                gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.Resampling.LANCZOS)
+                # print(input_img.shape,gt_img.shape)
 
-        if self.parse_patches:
-            wd_new = 512
-            ht_new = 512
-            input_img = input_img.resize((wd_new, ht_new), PIL.Image.LANCZOS) #PIL.Image.ANTIALIAS
-            gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.LANCZOS)
-            # print('-input_img.shape,gt_img.shape-',input_img.size,gt_img.size)
-            i, j, h, w = self.get_params(input_img, (self.patch_size, self.patch_size), self.n)
-            input_img = self.n_random_crops(input_img, i, j, h, w)
-            gt_img = self.n_random_crops(gt_img, i, j, h, w)
-            outputs = [torch.cat([self.transforms(input_img[i]), self.transforms(gt_img[i])], dim=0)
-                       for i in range(self.n)]
-            return torch.stack(outputs, dim=0), img_id
+                return torch.cat([self.transforms(input_img), self.transforms(gt_img)], dim=0), img_id
+        # NAFNet
         else:
-            wd_new = 256
-            ht_new = 256
-            input_img = input_img.resize((wd_new, ht_new), PIL.Image.LANCZOS)
-            gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.LANCZOS)
-            # print(input_img.shape,gt_img.shape)
-
             return torch.cat([self.transforms(input_img), self.transforms(gt_img)], dim=0), img_id
 
     def __getitem__(self, index):

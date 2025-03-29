@@ -8,4 +8,8 @@
 /dataSources.local.xml
 
 # exclude .idea folder
-.idea/
+**.idea/
+runs/
+Param/
+images/
+**/__pycache__/
